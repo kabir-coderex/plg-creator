@@ -96,16 +96,36 @@ This is an explicit, discussed security tradeoff for a no-bots/no-adversary prot
 ---
 
 ## M3 — First Vertical Slice: Courses (web + MCP together)
-**Status: todo**
+**Status: done**
 
-- [ ] `courses`, `lessons`, `categories` tables + RLS (org-scoped)
-- [ ] Courses list + create/edit form (real data, replaces placeholder)
-- [ ] Lesson builder (basic: title, content, video URL)
-- [ ] Storage bucket wiring for media (Supabase Storage, org-scoped paths)
-- [ ] MCP tools: `create_course`, `update_course`, `publish_course`, `list_courses`
-- [ ] Verify: same course created via MCP shows up instantly in the dashboard, and vice versa
+- [x] `courses`, `lessons`, `categories` tables + RLS (org-scoped) — plus a new `is_org_content_manager` helper (owner/admin/instructor can write; any member can read), same shape as `is_org_admin` from M1
+- [x] Courses list + create/edit form (real data, replaces placeholder) — `/dashboard/courses`, `/dashboard/courses/new`, `/dashboard/courses/[id]`
+- [x] Lesson builder (basic: title, content, video URL) — dialog-based add/edit, inline delete, nested in the course detail page
+- [x] Storage bucket wiring for media (Supabase Storage, org-scoped paths) — `course-media` bucket, public read, write RLS scoped to `{org_id}/...` path via `is_org_content_manager`; used for course thumbnails only (lesson `video_url` stays a plain external link, not a file upload — deliberately simple)
+- [x] MCP tools — went beyond the original 4, per this round's "all options" request: `create_course`, `update_course`, `publish_course`, `unpublish_course`, `delete_course`, `list_courses`, `create_lesson`, `update_lesson`, `delete_lesson`, `list_lessons`, `create_category`, `list_categories`, `delete_category` (13 tools; no `get_course`/`get_lesson` — `list_*` with filters covers that read path, kept the surface smaller on purpose)
+- [x] Verify: same course created via MCP shows up instantly in the dashboard, and vice versa
 
-**Exit criteria:** "Create a course called X" from an MCP client creates a real row, visible live in that creator's dashboard.
+**Key architecture decision — resolves the M2 "what happens at M3+" open question:** MCP tools have no Supabase user session (no `auth.uid()`), so the normal `is_org_content_manager`-gated RLS path (used for the web dashboard) doesn't apply to them. Went with **one `SECURITY DEFINER` RPC per MCP mutation** (`mcp_create_course`, `mcp_update_course`, ... — 13 total), each taking `p_key_hash text` as its first argument and re-deriving `org_id` from a fresh, non-revoked `api_keys` lookup via an internal `mcp_authenticated_org(p_key_hash)` helper — never trusting a client-supplied `org_id`, since the publishable key used to reach these via PostgREST directly is not a secret. `mcp_authenticated_org` itself is revoked from `anon`/`authenticated` entirely (only reachable from inside another `SECURITY DEFINER` function); every outer `mcp_*` wrapper is intentionally anon-callable (that's the point) and shows up as such in the security advisor.
+
+Simplification made deliberately: **possessing a valid API key = full read/write on that org's courses/lessons/categories**, no finer-grained role check at the MCP layer (unlike the web dashboard, which still restricts writes to owner/admin/instructor via RLS). Justification: only owner/admin can create a key in the first place (M2's `api_keys` insert RLS), so issuing a key already *is* the authorization decision — the key is a scoped service credential, not a mirror of the granting user's exact role.
+
+**Verified live (against the real project), in order:**
+1. DB: owner can create categories/courses (RLS `is_org_content_manager`); `support`-role member can read but not write (courses insert + storage upload both correctly rejected); `anon` sees nothing; `anon` cannot call `mcp_authenticated_org` directly (`42501 permission denied`, confirms the internal helper is truly unreachable)
+2. Storage: owner can upload to `course-media/{org_id}/...`, `support` cannot; public read works on the uploaded object without auth
+3. Every `mcp_*` RPC exercised directly over PostgREST: create/list/update/publish/delete for courses, lessons, categories; wrong key hash → clean exception, no data leaked; deleted rows actually gone from subsequent `mcp_list_*` calls
+4. End-to-end MCP tool calls over `/api/mcp`: `create_course` → `list_courses` → `update_course` → `publish_course` → `create_lesson` → `update_lesson` → `delete_lesson` → `delete_course` → `create_category` → `list_categories` → `delete_category`, all via real HTTP calls with a real signed-up org's key
+5. Cross-check (the actual exit criterion): created a course via MCP, logged into the web dashboard as that same org's owner (real browser, Playwright), confirmed it listed with correct title/status/description and detail page matched; separately created a second course through the web UI form and confirmed `list_courses` over MCP returned both — bidirectional, confirmed both directions live, not assumed
+6. `tsc --noEmit` / `eslint` clean throughout
+
+**Bug found + fixed during verification:** the "Add lesson" / "Edit lesson" dialog triggers used `<DialogTrigger render={<Button .../>}>` — nesting two Base UI primitives that each independently manage native-`<button>` semantics (`useButton`'s `nativeButton` check), which threw a console warning ("expected a native `<button>`...") because the two primitives' render-prop chains stepped on each other. Fixed by styling `DialogTrigger` directly via `buttonVariants()` className instead of nesting a `Button` component — matches the existing `DropdownMenuTrigger` pattern already used in `org-switcher.tsx`. Verified fixed live (console-clean on both dialogs).
+
+**Also surfaced, not fixed (pre-existing, out of scope):** the same warning class also fires from `<Button render={<Link .../>}>` — but that's the officially documented convention in this repo's own `plg3-stack-conventions` skill, used everywhere since M0 (site header, landing page, login/signup, sidebar, this very milestone's own "New course" button). Not a regression from this round; fixing it would mean relitigating/replacing a documented, codebase-wide convention, not a targeted M3 fix. Flagging for whoever owns that convention decision.
+
+**Also surfaced:** a leftover Storage-API quirk — deleting a `course-media` object via the bulk-remove endpoint (both raw REST and the JS SDK's `.remove()`) silently no-ops (`200`, empty array) for a role that has RLS DELETE permission, while the single-object `DELETE /object/{bucket}/{path}` endpoint correctly 403s for an unauthorized role but ALSO 403s for an authorized one when tested here — inconsistent with the RLS policy itself (confirmed correct via direct SQL + `is_org_content_manager` RPC check). Not chased further since it only affects a manual test-cleanup path, not a real feature (no delete-thumbnail flow exists yet); left one harmless orphaned test object in `course-media` under a deleted test org's now-nonexistent folder. Worth a look if a real "delete thumbnail" feature gets built later.
+
+**Test data:** all test orgs/courses/lessons/categories/api_keys cleaned from `public` schema after verification. Test `auth.users` rows left (harmless `+m3verify`/`+m3owner`/`+m3support`/`+m3cross` aliases on linno.io), same pattern as M1/M2.
+
+**Exit criteria met:** "Create a course called X" from an MCP client creates a real row, visible live in that creator's dashboard — verified in both directions, live, with a real browser.
 
 ---
 

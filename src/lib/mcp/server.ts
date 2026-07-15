@@ -6,6 +6,23 @@ import type { McpAuthContext } from "@/lib/mcp/auth"
 import { signupCreator } from "@/lib/mcp/signup"
 import { signinCreator } from "@/lib/mcp/signin"
 import { MCP_SERVER_NAME } from "@/lib/mcp/constants"
+import { hashApiKey } from "@/lib/api-keys"
+import { uniqueSlug } from "@/lib/slug"
+import {
+  mcpCreateCategory,
+  mcpCreateCourse,
+  mcpCreateLesson,
+  mcpDeleteCategory,
+  mcpDeleteCourse,
+  mcpDeleteLesson,
+  mcpListCategories,
+  mcpListCourses,
+  mcpListLessons,
+  mcpSetCourseStatus,
+  mcpUpdateCourse,
+  mcpUpdateLesson,
+} from "@/lib/mcp/courses"
+import { fetchYoutubePlaylist } from "@/lib/youtube"
 
 const organizationShape = {
   id: z.string().describe("Organization UUID"),
@@ -13,7 +30,37 @@ const organizationShape = {
   slug: z.string().describe("Organization URL slug"),
 }
 
-type ToolExtra = { authInfo?: { extra?: Record<string, unknown> } }
+const courseShape = {
+  id: z.string(),
+  category_id: z.string().nullable(),
+  title: z.string(),
+  slug: z.string(),
+  description: z.string().nullable(),
+  thumbnail_url: z.string().nullable(),
+  status: z.string(),
+  created_at: z.string(),
+  updated_at: z.string(),
+}
+
+const lessonShape = {
+  id: z.string(),
+  course_id: z.string(),
+  title: z.string(),
+  content: z.string().nullable(),
+  video_url: z.string().nullable(),
+  position: z.number(),
+  created_at: z.string(),
+  updated_at: z.string(),
+}
+
+const categoryShape = {
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  created_at: z.string(),
+}
+
+type ToolExtra = { authInfo?: { token?: string; extra?: Record<string, unknown> } }
 
 // `extra.authInfo.extra` always carries `mcpUrl` (even anonymously); org fields
 // (orgId/orgName/...) are only present once a valid API key was presented.
@@ -27,6 +74,17 @@ function requireAuth(extra: ToolExtra): McpAuthContext {
     throw new Error("Missing org context — this tool must be called with a valid API key.")
   }
   return ctx
+}
+
+// Every courses/lessons/categories tool below is gated by a valid API key; the key's hash
+// (not the org context) is what the mcp_* RPCs actually check — see docs/Milestone.md M3.
+function getKeyHash(extra: ToolExtra): string {
+  requireAuth(extra)
+  const token = extra.authInfo?.token
+  if (!token) {
+    throw new Error("Missing org context — this tool must be called with a valid API key.")
+  }
+  return hashApiKey(token)
 }
 
 function reconnectCommand(mcpUrl: string, apiKey: string): string {
@@ -231,6 +289,402 @@ export function createMcpServer() {
       return {
         content: [{ type: "text", text: `Organization: ${ctx.orgName} (${ctx.orgSlug})` }],
         structuredContent,
+      }
+    }
+  )
+
+  // ===== courses =====
+
+  // Permission: any valid, non-revoked API key — scoped to that key's own org.
+  // Example prompt: "Create a course called Intro to Baking."
+  // Example response: { course: { id, title, status: "draft", ... } }
+  server.registerTool(
+    "create_course",
+    {
+      title: "Create course",
+      description: "Create a new course. Add lessons afterward with `create_lesson`.",
+      inputSchema: {
+        title: z.string().min(2).describe("Course title"),
+        description: z.string().optional().describe("What students will learn"),
+        category_id: z.string().optional().describe("Existing category UUID — see `list_categories`"),
+        status: z.enum(["draft", "published"]).optional().describe("Defaults to draft"),
+      },
+      outputSchema: { course: z.object(courseShape) },
+      annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ title, description, category_id, status }, extra) => {
+      const keyHash = getKeyHash(extra)
+      const course = await mcpCreateCourse(keyHash, {
+        title,
+        slug: uniqueSlug(title),
+        description,
+        categoryId: category_id,
+        status,
+      })
+      return {
+        content: [{ type: "text", text: `Created course "${course.title}" (${course.status}).` }],
+        structuredContent: { course },
+      }
+    }
+  )
+
+  // Permission: any valid, non-revoked API key. Omitted fields are left unchanged.
+  // Example prompt: "Update that course's description to ..."
+  server.registerTool(
+    "update_course",
+    {
+      title: "Update course",
+      description:
+        "Update a course's title, description, category, or thumbnail URL. Omitted fields are left unchanged.",
+      inputSchema: {
+        course_id: z.string().describe("Course UUID"),
+        title: z.string().min(2).optional(),
+        description: z.string().optional(),
+        category_id: z.string().optional(),
+        thumbnail_url: z
+          .string()
+          .optional()
+          .describe("Publicly hosted image URL — this tool can't upload files directly"),
+      },
+      outputSchema: { course: z.object(courseShape) },
+      annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ course_id, title, description, category_id, thumbnail_url }, extra) => {
+      const keyHash = getKeyHash(extra)
+      const course = await mcpUpdateCourse(keyHash, {
+        courseId: course_id,
+        title,
+        description,
+        categoryId: category_id,
+        thumbnailUrl: thumbnail_url,
+      })
+      return {
+        content: [{ type: "text", text: `Updated course "${course.title}".` }],
+        structuredContent: { course },
+      }
+    }
+  )
+
+  // Permission: any valid, non-revoked API key.
+  // Example prompt: "Publish that course."
+  server.registerTool(
+    "publish_course",
+    {
+      title: "Publish course",
+      description: "Mark a course as published.",
+      inputSchema: { course_id: z.string().describe("Course UUID") },
+      outputSchema: { course: z.object(courseShape) },
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ course_id }, extra) => {
+      const keyHash = getKeyHash(extra)
+      const course = await mcpSetCourseStatus(keyHash, course_id, "published")
+      return {
+        content: [{ type: "text", text: `Published "${course.title}".` }],
+        structuredContent: { course },
+      }
+    }
+  )
+
+  // Permission: any valid, non-revoked API key.
+  // Example prompt: "Unpublish that course."
+  server.registerTool(
+    "unpublish_course",
+    {
+      title: "Unpublish course",
+      description: "Revert a course to draft.",
+      inputSchema: { course_id: z.string().describe("Course UUID") },
+      outputSchema: { course: z.object(courseShape) },
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ course_id }, extra) => {
+      const keyHash = getKeyHash(extra)
+      const course = await mcpSetCourseStatus(keyHash, course_id, "draft")
+      return {
+        content: [{ type: "text", text: `Unpublished "${course.title}".` }],
+        structuredContent: { course },
+      }
+    }
+  )
+
+  // Permission: any valid, non-revoked API key.
+  // Example prompt: "Delete that course."
+  server.registerTool(
+    "delete_course",
+    {
+      title: "Delete course",
+      description: "Permanently delete a course and all of its lessons.",
+      inputSchema: { course_id: z.string().describe("Course UUID") },
+      outputSchema: { deleted: z.boolean() },
+      annotations: { destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ course_id }, extra) => {
+      const keyHash = getKeyHash(extra)
+      await mcpDeleteCourse(keyHash, course_id)
+      return {
+        content: [{ type: "text", text: "Course deleted." }],
+        structuredContent: { deleted: true },
+      }
+    }
+  )
+
+  // Permission: any valid, non-revoked API key.
+  // Example prompt: "List my courses." / "List my published courses."
+  server.registerTool(
+    "list_courses",
+    {
+      title: "List courses",
+      description: "List this org's courses, optionally filtered by status.",
+      inputSchema: { status: z.enum(["draft", "published"]).optional() },
+      outputSchema: { courses: z.array(z.object(courseShape)) },
+    },
+    async ({ status }, extra) => {
+      const keyHash = getKeyHash(extra)
+      const courses = await mcpListCourses(keyHash, status)
+      return {
+        content: [{ type: "text", text: `${courses.length} course(s).` }],
+        structuredContent: { courses },
+      }
+    }
+  )
+
+  // Permission: any valid, non-revoked API key. Reaches out to the YouTube Data API (public
+  // playlists only — no OAuth, just the server's own YOUTUBE_API_KEY).
+  // Example prompt: "Turn this YouTube playlist into a course: https://youtube.com/playlist?list=..."
+  // Example response: { course, lessons_created, playlist_title }
+  server.registerTool(
+    "create_course_from_youtube_playlist",
+    {
+      title: "Create course from YouTube playlist",
+      description:
+        "Import a public YouTube playlist as a course — one lesson per video, in playlist order, " +
+        "each lesson's video_url pointing at that video and its content set from the video's own " +
+        "description. If title is omitted, the playlist's own title is used.",
+      inputSchema: {
+        playlist_url: z.string().describe("YouTube playlist URL (or raw playlist ID)"),
+        title: z.string().min(2).optional().describe("Course title — defaults to the playlist's title"),
+        category_id: z.string().optional().describe("Existing category UUID — see `list_categories`"),
+      },
+      outputSchema: {
+        course: z.object(courseShape),
+        lessons_created: z.number(),
+        playlist_title: z.string(),
+      },
+      annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async ({ playlist_url, title, category_id }, extra) => {
+      const keyHash = getKeyHash(extra)
+      const playlist = await fetchYoutubePlaylist(playlist_url)
+
+      if (playlist.videos.length === 0) {
+        throw new Error("That playlist has no public videos to import.")
+      }
+
+      const courseTitle = title ?? playlist.title
+      const course = await mcpCreateCourse(keyHash, {
+        title: courseTitle,
+        slug: uniqueSlug(courseTitle),
+        categoryId: category_id,
+      })
+
+      for (const video of playlist.videos) {
+        await mcpCreateLesson(keyHash, {
+          courseId: course.id,
+          title: video.title,
+          content: video.description || undefined,
+          videoUrl: `https://www.youtube.com/watch?v=${video.videoId}`,
+          position: video.position,
+        })
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              `Created course "${course.title}" with ${playlist.videos.length} lesson(s) ` +
+              `from the playlist "${playlist.title}".`,
+          },
+        ],
+        structuredContent: {
+          course,
+          lessons_created: playlist.videos.length,
+          playlist_title: playlist.title,
+        },
+      }
+    }
+  )
+
+  // ===== lessons =====
+
+  // Permission: any valid, non-revoked API key.
+  // Example prompt: "Add a lesson called Knife Skills to that course."
+  server.registerTool(
+    "create_lesson",
+    {
+      title: "Create lesson",
+      description: "Add a lesson to a course.",
+      inputSchema: {
+        course_id: z.string().describe("Course UUID"),
+        title: z.string().min(2),
+        content: z.string().optional(),
+        video_url: z.string().optional(),
+        position: z.number().int().optional().describe("Sort order; defaults to appended at the end"),
+      },
+      outputSchema: { lesson: z.object(lessonShape) },
+      annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ course_id, title, content, video_url, position }, extra) => {
+      const keyHash = getKeyHash(extra)
+      const lesson = await mcpCreateLesson(keyHash, {
+        courseId: course_id,
+        title,
+        content,
+        videoUrl: video_url,
+        position,
+      })
+      return {
+        content: [{ type: "text", text: `Added lesson "${lesson.title}".` }],
+        structuredContent: { lesson },
+      }
+    }
+  )
+
+  // Permission: any valid, non-revoked API key. Omitted fields are left unchanged.
+  server.registerTool(
+    "update_lesson",
+    {
+      title: "Update lesson",
+      description:
+        "Update a lesson's title, content, video URL, or position. Omitted fields are left unchanged.",
+      inputSchema: {
+        lesson_id: z.string().describe("Lesson UUID"),
+        title: z.string().min(2).optional(),
+        content: z.string().optional(),
+        video_url: z.string().optional(),
+        position: z.number().int().optional(),
+      },
+      outputSchema: { lesson: z.object(lessonShape) },
+      annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ lesson_id, title, content, video_url, position }, extra) => {
+      const keyHash = getKeyHash(extra)
+      const lesson = await mcpUpdateLesson(keyHash, {
+        lessonId: lesson_id,
+        title,
+        content,
+        videoUrl: video_url,
+        position,
+      })
+      return {
+        content: [{ type: "text", text: `Updated lesson "${lesson.title}".` }],
+        structuredContent: { lesson },
+      }
+    }
+  )
+
+  // Permission: any valid, non-revoked API key.
+  server.registerTool(
+    "delete_lesson",
+    {
+      title: "Delete lesson",
+      description: "Permanently delete a lesson.",
+      inputSchema: { lesson_id: z.string().describe("Lesson UUID") },
+      outputSchema: { deleted: z.boolean() },
+      annotations: { destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ lesson_id }, extra) => {
+      const keyHash = getKeyHash(extra)
+      await mcpDeleteLesson(keyHash, lesson_id)
+      return {
+        content: [{ type: "text", text: "Lesson deleted." }],
+        structuredContent: { deleted: true },
+      }
+    }
+  )
+
+  // Permission: any valid, non-revoked API key.
+  // Example prompt: "List the lessons in that course."
+  server.registerTool(
+    "list_lessons",
+    {
+      title: "List lessons",
+      description: "List a course's lessons in order.",
+      inputSchema: { course_id: z.string().describe("Course UUID") },
+      outputSchema: { lessons: z.array(z.object(lessonShape)) },
+    },
+    async ({ course_id }, extra) => {
+      const keyHash = getKeyHash(extra)
+      const lessons = await mcpListLessons(keyHash, course_id)
+      return {
+        content: [{ type: "text", text: `${lessons.length} lesson(s).` }],
+        structuredContent: { lessons },
+      }
+    }
+  )
+
+  // ===== categories =====
+
+  // Permission: any valid, non-revoked API key.
+  server.registerTool(
+    "create_category",
+    {
+      title: "Create category",
+      description: "Create a course category.",
+      inputSchema: { name: z.string().min(2) },
+      outputSchema: { category: z.object(categoryShape) },
+      annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ name }, extra) => {
+      const keyHash = getKeyHash(extra)
+      const category = await mcpCreateCategory(keyHash, { name, slug: uniqueSlug(name) })
+      return {
+        content: [{ type: "text", text: `Created category "${category.name}".` }],
+        structuredContent: { category },
+      }
+    }
+  )
+
+  // Permission: any valid, non-revoked API key.
+  // Example prompt: "What course categories do I have?"
+  server.registerTool(
+    "list_categories",
+    {
+      title: "List categories",
+      description: "List this org's course categories.",
+      outputSchema: { categories: z.array(z.object(categoryShape)) },
+    },
+    async (extra) => {
+      const keyHash = getKeyHash(extra)
+      const categories = await mcpListCategories(keyHash)
+      return {
+        content: [
+          {
+            type: "text",
+            text: `${categories.length} categor${categories.length === 1 ? "y" : "ies"}.`,
+          },
+        ],
+        structuredContent: { categories },
+      }
+    }
+  )
+
+  // Permission: any valid, non-revoked API key.
+  server.registerTool(
+    "delete_category",
+    {
+      title: "Delete category",
+      description: "Delete a course category. Courses using it fall back to no category.",
+      inputSchema: { category_id: z.string().describe("Category UUID") },
+      outputSchema: { deleted: z.boolean() },
+      annotations: { destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ category_id }, extra) => {
+      const keyHash = getKeyHash(extra)
+      await mcpDeleteCategory(keyHash, category_id)
+      return {
+        content: [{ type: "text", text: "Category deleted." }],
+        structuredContent: { deleted: true },
       }
     }
   )

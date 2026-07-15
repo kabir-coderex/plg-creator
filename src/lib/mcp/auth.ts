@@ -1,7 +1,7 @@
 import "server-only"
-import { createClient } from "@supabase/supabase-js"
 
 import { hashApiKey } from "@/lib/api-keys"
+import { createAnonClient } from "@/lib/supabase/anon"
 
 export type McpAuthContext = {
   orgId: string
@@ -9,15 +9,6 @@ export type McpAuthContext = {
   orgSlug: string
   keyId: string
   keyName: string
-}
-
-// Unauthenticated (publishable-key) client — API keys are validated via the
-// `authenticate_api_key` SECURITY DEFINER RPC, not a Supabase user session.
-function createAnonClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
-  )
 }
 
 export async function authenticateApiKey(rawKey: string): Promise<McpAuthContext | null> {

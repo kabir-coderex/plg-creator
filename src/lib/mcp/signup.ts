@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto"
 
 import { generateApiKey } from "@/lib/api-keys"
 import { slugify, uniqueSlug } from "@/lib/slug"
+import { createAnonClient } from "@/lib/supabase/anon"
 
 // Prototype-only: no real inbox exists at this domain. There is no confirmation email to
 // receive and no way to recover the account through it — it's a placeholder, not a mailbox.
@@ -16,13 +17,6 @@ function generatePlaceholderEmail(organizationName: string) {
 
 function generateStrongPassword() {
   return randomBytes(18).toString("base64url")
-}
-
-function createAnonClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
-  )
 }
 
 export type SignupResult = {

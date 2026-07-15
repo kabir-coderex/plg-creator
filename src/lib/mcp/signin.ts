@@ -2,13 +2,7 @@ import "server-only"
 import { createClient } from "@supabase/supabase-js"
 
 import { generateApiKey } from "@/lib/api-keys"
-
-function createAnonClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
-  )
-}
+import { createAnonClient } from "@/lib/supabase/anon"
 
 export type SigninResult = {
   organization: { id: string; name: string; slug: string }
