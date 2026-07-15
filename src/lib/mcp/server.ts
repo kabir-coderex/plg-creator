@@ -87,22 +87,19 @@ function getKeyHash(extra: ToolExtra): string {
   return hashApiKey(token)
 }
 
-function reconnectCommand(mcpUrl: string, apiKey: string): string {
-  return (
-    `claude mcp remove ${MCP_SERVER_NAME} 2>/dev/null; ` +
-    `claude mcp add --transport http ${MCP_SERVER_NAME} --scope user ${mcpUrl} ` +
-    `--header "Authorization: Bearer ${apiKey}"`
-  )
-}
-
-// Shared by `signup` and `signin` — both end with "here's a fresh key, please reconnect."
 function reconnectBlock(mcpUrl: string, apiKey: string) {
-  const command = reconnectCommand(mcpUrl, apiKey)
+  const commands = {
+    claude: `claude mcp remove ${MCP_SERVER_NAME} 2>/dev/null; claude mcp add --transport http ${MCP_SERVER_NAME} --scope user ${mcpUrl} --header "Authorization: Bearer ${apiKey}"`,
+    gemini: `gemini mcp remove ${MCP_SERVER_NAME} 2>/dev/null; gemini mcp add --transport http ${MCP_SERVER_NAME} --scope user ${mcpUrl} --header "Authorization: Bearer ${apiKey}"`,
+    chatgpt: `chatgpt mcp remove ${MCP_SERVER_NAME} 2>/dev/null; chatgpt mcp add --transport http ${MCP_SERVER_NAME} --scope user ${mcpUrl} --header "Authorization: Bearer ${apiKey}"`,
+  };
+
   const instructions =
-    `If you have shell access, run this now to finish connecting (don't just print the key to the user):\n${command}\n\n` +
+    `If you have shell access, run this now to finish connecting (don't just print the key to the user):\n${commands.claude}\n\n` +
     "Then reconnect to this MCP server and call `whoami` to confirm before doing anything else. " +
-    `If you have no shell access, tell the user their apiKey is: ${apiKey}`
-  return { command, instructions }
+    `If you have no shell access, tell the user their apiKey is: ${apiKey}`;
+
+  return { commands, instructions };
 }
 
 export function createMcpServer() {
@@ -148,8 +145,11 @@ export function createMcpServer() {
           .string()
           .describe("Bearer token for all other tools on this org. Shown only this once."),
         reconnect: z.object({
-          command: z
-            .string()
+          commands: z.object({
+            claude: z.string(),
+            gemini: z.string(),
+            chatgpt: z.string(),
+          })
             .describe(
               "Shell command that re-registers this MCP connection with the new API key. " +
                 "If you (the calling agent) have shell access, run this now instead of showing " +
@@ -162,7 +162,7 @@ export function createMcpServer() {
     },
     async ({ organization_name, email, password }, extra) => {
       const result = await signupCreator({ organizationName: organization_name, email, password })
-      const { command, instructions } = reconnectBlock(getMcpUrl(extra), result.apiKey)
+      const { commands, instructions } = reconnectBlock(getMcpUrl(extra), result.apiKey)
 
       return {
         content: [
@@ -175,7 +175,7 @@ export function createMcpServer() {
               instructions,
           },
         ],
-        structuredContent: { ...result, reconnect: { command } },
+        structuredContent: { ...result, reconnect: { commands } },
       }
     }
   )
@@ -204,8 +204,11 @@ export function createMcpServer() {
           .string()
           .describe("Newly issued bearer token for all other tools on this org. Shown only this once."),
         reconnect: z.object({
-          command: z
-            .string()
+          commands: z.object({
+            claude: z.string(),
+            gemini: z.string(),
+            chatgpt: z.string(),
+          })
             .describe(
               "Shell command that re-registers this MCP connection with the new API key. " +
                 "If you (the calling agent) have shell access, run this now instead of showing " +
@@ -218,7 +221,7 @@ export function createMcpServer() {
     },
     async ({ email, password }, extra) => {
       const result = await signinCreator({ email, password })
-      const { command, instructions } = reconnectBlock(getMcpUrl(extra), result.apiKey)
+      const { commands, instructions } = reconnectBlock(getMcpUrl(extra), result.apiKey)
 
       return {
         content: [
@@ -227,7 +230,7 @@ export function createMcpServer() {
             text: `Signed in to organization "${result.organization.name}".\n\n${instructions}`,
           },
         ],
-        structuredContent: { ...result, reconnect: { command } },
+        structuredContent: { ...result, reconnect: { commands } },
       }
     }
   )

@@ -2,10 +2,16 @@
 
 import { useState } from "react"
 import { Check, Copy } from "lucide-react"
-
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { MCP_SERVER_NAME } from "@/lib/mcp/constants"
+
+// Define an interface for the CLI commands
+interface CLICommand {
+  claude: string;
+  gemini: string;
+  chatgpt: string;
+}
 
 function CopyBlock({ label, code }: { label: string; code: string }) {
   const [copied, setCopied] = useState(false)
@@ -36,8 +42,10 @@ export function McpConnectPanel({
   cliCommand,
 }: {
   mcpUrl: string
-  cliCommand: string
+  cliCommand: CLICommand; // Update the type to use the CLICommand interface
 }) {
+  const [selectedAI, setSelectedAI] = useState<keyof CLICommand>("claude");
+
   const configJson = JSON.stringify(
     { mcpServers: { [MCP_SERVER_NAME]: { url: mcpUrl } } },
     null,
@@ -55,7 +63,33 @@ export function McpConnectPanel({
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <CopyBlock label="Claude Code (CLI) — global, one time" code={cliCommand} />
+        {/* Add a tab-like interface to switch between AI clients */}
+        <div className="flex gap-2">
+          <Button
+            variant={selectedAI === "claude" ? "default" : "outline"}
+            onClick={() => setSelectedAI("claude")}
+          >
+            Claude
+          </Button>
+          <Button
+            variant={selectedAI === "gemini" ? "default" : "outline"}
+            onClick={() => setSelectedAI("gemini")}
+          >
+            Gemini
+          </Button>
+          <Button
+            variant={selectedAI === "chatgpt" ? "default" : "outline"}
+            onClick={() => setSelectedAI("chatgpt")}
+          >
+            ChatGPT
+          </Button>
+        </div>
+
+        {/* Display the CLI command for the selected AI client */}
+        <CopyBlock
+          label={`${selectedAI.charAt(0).toUpperCase() + selectedAI.slice(1)} Code (CLI) — global, one time`}
+          code={cliCommand[selectedAI]}
+        />
         <CopyBlock label="Other MCP clients (config JSON)" code={configJson} />
       </CardContent>
     </Card>

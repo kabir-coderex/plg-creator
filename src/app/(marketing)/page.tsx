@@ -25,7 +25,11 @@ async function getMcpUrl() {
 
 export default async function LandingPage() {
   const mcpUrl = await getMcpUrl()
-  const cliCommand = `claude mcp add --transport http ${MCP_SERVER_NAME} --scope user ${mcpUrl}`
+  const cliCommand = {
+    claude: `claude mcp add --transport http ${MCP_SERVER_NAME} --scope user ${mcpUrl}`,
+    gemini: `gemini mcp add --transport http ${MCP_SERVER_NAME} --scope user ${mcpUrl}`,
+    chatgpt: `chatgpt mcp add --transport http ${MCP_SERVER_NAME} --scope user ${mcpUrl}`,
+  };
 
   return (
     <>
