@@ -22,6 +22,12 @@ import {
   mcpUpdateCourse,
   mcpUpdateLesson,
 } from "@/lib/mcp/courses"
+import {
+  mcpCreateFunnel,
+  mcpDeleteFunnel,
+  mcpListFunnels,
+  mcpSetFunnelStatus,
+} from "@/lib/mcp/funnels"
 import { fetchYoutubePlaylist } from "@/lib/youtube"
 
 const organizationShape = {
@@ -60,12 +66,35 @@ const categoryShape = {
   created_at: z.string(),
 }
 
+const funnelShape = {
+  id: z.string(),
+  course_id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  template_key: z.string(),
+  headline: z.string(),
+  subheadline: z.string().nullable(),
+  description: z.string().nullable(),
+  cta_text: z.string(),
+  price_label: z.string(),
+  thank_you_message: z.string(),
+  status: z.string(),
+  created_at: z.string(),
+  updated_at: z.string(),
+}
+
 type ToolExtra = { authInfo?: { token?: string; extra?: Record<string, unknown> } }
 
 // `extra.authInfo.extra` always carries `mcpUrl` (even anonymously); org fields
 // (orgId/orgName/...) are only present once a valid API key was presented.
 function getMcpUrl(extra: ToolExtra): string {
   return (extra.authInfo?.extra?.mcpUrl as string | undefined) ?? "http://localhost:3000/api/mcp"
+}
+
+// mcpUrl is always `${origin}/api/mcp` — strip the suffix to recover the site origin
+// for building public-facing URLs (course/funnel pages) in tool responses.
+function getSiteOrigin(extra: ToolExtra): string {
+  return getMcpUrl(extra).replace(/\/api\/mcp\/?$/, "")
 }
 
 function requireAuth(extra: ToolExtra): McpAuthContext {
@@ -376,15 +405,17 @@ export function createMcpServer() {
       title: "Publish course",
       description: "Mark a course as published.",
       inputSchema: { course_id: z.string().describe("Course UUID") },
-      outputSchema: { course: z.object(courseShape) },
+      outputSchema: { course: z.object(courseShape), url: z.string().describe("Public course URL") },
       annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ course_id }, extra) => {
+      const ctx = requireAuth(extra)
       const keyHash = getKeyHash(extra)
       const course = await mcpSetCourseStatus(keyHash, course_id, "published")
+      const url = `${getSiteOrigin(extra)}/${ctx.orgSlug}/courses/${course.slug}`
       return {
-        content: [{ type: "text", text: `Published "${course.title}".` }],
-        structuredContent: { course },
+        content: [{ type: "text", text: `Published "${course.title}" at ${url}` }],
+        structuredContent: { course, url },
       }
     }
   )
@@ -687,6 +718,142 @@ export function createMcpServer() {
       await mcpDeleteCategory(keyHash, category_id)
       return {
         content: [{ type: "text", text: "Category deleted." }],
+        structuredContent: { deleted: true },
+      }
+    }
+  )
+
+  // ===== funnels =====
+
+  // Permission: any valid, non-revoked API key — scoped to that key's own org. The course must
+  // belong to the same org. Only one template exists (M4), so there's nothing to choose.
+  // Example prompt: "Create a funnel for my baking course, headline 'Learn to bake like a pro'."
+  // Example response: { funnel: { id, name, status: "draft", ... } }
+  server.registerTool(
+    "create_funnel",
+    {
+      title: "Create funnel",
+      description:
+        "Create a landing/checkout/thank-you funnel for a course, using the one built-in template. " +
+        "Copy fields are optional and fall back to sensible defaults.",
+      inputSchema: {
+        course_id: z.string().describe("Course UUID this funnel sells — see `list_courses`"),
+        name: z.string().min(2).describe("Internal funnel name"),
+        headline: z.string().optional().describe("Landing page headline"),
+        subheadline: z.string().optional(),
+        description: z.string().optional().describe("Landing page body copy"),
+        cta_text: z.string().optional().describe("Button text, defaults to 'Get instant access'"),
+        price_label: z.string().optional().describe("Display-only price string, e.g. '$97'"),
+        thank_you_message: z.string().optional(),
+        status: z.enum(["draft", "published"]).optional().describe("Defaults to draft"),
+      },
+      outputSchema: { funnel: z.object(funnelShape) },
+      annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (
+      { course_id, name, headline, subheadline, description, cta_text, price_label, thank_you_message, status },
+      extra
+    ) => {
+      const keyHash = getKeyHash(extra)
+      const funnel = await mcpCreateFunnel(keyHash, {
+        courseId: course_id,
+        name,
+        slug: uniqueSlug(name),
+        headline,
+        subheadline,
+        description,
+        ctaText: cta_text,
+        priceLabel: price_label,
+        thankYouMessage: thank_you_message,
+        status,
+      })
+      return {
+        content: [{ type: "text", text: `Created funnel "${funnel.name}" (${funnel.status}).` }],
+        structuredContent: { funnel },
+      }
+    }
+  )
+
+  // Permission: any valid, non-revoked API key.
+  // Example prompt: "List my funnels." / "List my published funnels."
+  server.registerTool(
+    "list_funnels",
+    {
+      title: "List funnels",
+      description: "List this org's funnels, optionally filtered by status.",
+      inputSchema: { status: z.enum(["draft", "published"]).optional() },
+      outputSchema: { funnels: z.array(z.object(funnelShape)) },
+    },
+    async ({ status }, extra) => {
+      const keyHash = getKeyHash(extra)
+      const funnels = await mcpListFunnels(keyHash, status)
+      return {
+        content: [{ type: "text", text: `${funnels.length} funnel(s).` }],
+        structuredContent: { funnels },
+      }
+    }
+  )
+
+  // Permission: any valid, non-revoked API key.
+  // Example prompt: "Publish that funnel."
+  server.registerTool(
+    "publish_funnel",
+    {
+      title: "Publish funnel",
+      description: "Publish a funnel — makes its landing/checkout/thank-you pages publicly live.",
+      inputSchema: { funnel_id: z.string().describe("Funnel UUID") },
+      outputSchema: { funnel: z.object(funnelShape), url: z.string().describe("Public funnel URL") },
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ funnel_id }, extra) => {
+      const ctx = requireAuth(extra)
+      const keyHash = getKeyHash(extra)
+      const funnel = await mcpSetFunnelStatus(keyHash, funnel_id, "published")
+      const url = `${getSiteOrigin(extra)}/${ctx.orgSlug}/funnels/${funnel.slug}`
+      return {
+        content: [{ type: "text", text: `Published "${funnel.name}" at ${url}` }],
+        structuredContent: { funnel, url },
+      }
+    }
+  )
+
+  // Permission: any valid, non-revoked API key.
+  // Example prompt: "Unpublish that funnel."
+  server.registerTool(
+    "unpublish_funnel",
+    {
+      title: "Unpublish funnel",
+      description: "Revert a funnel to draft, taking its public pages offline.",
+      inputSchema: { funnel_id: z.string().describe("Funnel UUID") },
+      outputSchema: { funnel: z.object(funnelShape) },
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ funnel_id }, extra) => {
+      const keyHash = getKeyHash(extra)
+      const funnel = await mcpSetFunnelStatus(keyHash, funnel_id, "draft")
+      return {
+        content: [{ type: "text", text: `Unpublished "${funnel.name}".` }],
+        structuredContent: { funnel },
+      }
+    }
+  )
+
+  // Permission: any valid, non-revoked API key.
+  // Example prompt: "Delete that funnel."
+  server.registerTool(
+    "delete_funnel",
+    {
+      title: "Delete funnel",
+      description: "Permanently delete a funnel and any orders recorded through it.",
+      inputSchema: { funnel_id: z.string().describe("Funnel UUID") },
+      outputSchema: { deleted: z.boolean() },
+      annotations: { destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ funnel_id }, extra) => {
+      const keyHash = getKeyHash(extra)
+      await mcpDeleteFunnel(keyHash, funnel_id)
+      return {
+        content: [{ type: "text", text: "Funnel deleted." }],
         structuredContent: { deleted: true },
       }
     }

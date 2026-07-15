@@ -200,3 +200,129 @@ export async function getLessons(orgId: string, courseId: string): Promise<Lesso
     position: row.position,
   }))
 }
+
+export type Funnel = {
+  id: string
+  courseId: string
+  courseTitle: string | null
+  name: string
+  slug: string
+  headline: string
+  subheadline: string | null
+  description: string | null
+  ctaText: string
+  priceLabel: string
+  thankYouMessage: string
+  status: "draft" | "published"
+  createdAt: string
+  updatedAt: string
+}
+
+const FUNNEL_SELECT =
+  "id, course_id, name, slug, headline, subheadline, description, cta_text, price_label, thank_you_message, status, created_at, updated_at, courses (title)"
+
+function mapFunnel(row: {
+  id: string
+  course_id: string
+  name: string
+  slug: string
+  headline: string
+  subheadline: string | null
+  description: string | null
+  cta_text: string
+  price_label: string
+  thank_you_message: string
+  status: string
+  created_at: string
+  updated_at: string
+  courses: { title: string }[] | { title: string } | null
+}): Funnel {
+  const course = Array.isArray(row.courses) ? row.courses[0] : row.courses
+  return {
+    id: row.id,
+    courseId: row.course_id,
+    courseTitle: course?.title ?? null,
+    name: row.name,
+    slug: row.slug,
+    headline: row.headline,
+    subheadline: row.subheadline,
+    description: row.description,
+    ctaText: row.cta_text,
+    priceLabel: row.price_label,
+    thankYouMessage: row.thank_you_message,
+    status: row.status as Funnel["status"],
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+export async function getFunnels(orgId: string): Promise<Funnel[]> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from("funnels")
+    .select(FUNNEL_SELECT)
+    .eq("org_id", orgId)
+    .order("created_at", { ascending: false })
+
+  if (error) {
+    throw error
+  }
+
+  return (data ?? []).map(mapFunnel)
+}
+
+export async function getFunnel(orgId: string, funnelId: string): Promise<Funnel | null> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from("funnels")
+    .select(FUNNEL_SELECT)
+    .eq("org_id", orgId)
+    .eq("id", funnelId)
+    .maybeSingle()
+
+  if (error) {
+    throw error
+  }
+
+  return data ? mapFunnel(data) : null
+}
+
+export type Order = {
+  id: string
+  funnelId: string
+  customerName: string
+  customerEmail: string
+  status: string
+  createdAt: string
+}
+
+export async function getOrders(orgId: string, funnelId?: string): Promise<Order[]> {
+  const supabase = await createClient()
+
+  let query = supabase
+    .from("orders")
+    .select("id, funnel_id, customer_name, customer_email, status, created_at")
+    .eq("org_id", orgId)
+    .order("created_at", { ascending: false })
+
+  if (funnelId) {
+    query = query.eq("funnel_id", funnelId)
+  }
+
+  const { data, error } = await query
+
+  if (error) {
+    throw error
+  }
+
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    funnelId: row.funnel_id,
+    customerName: row.customer_name,
+    customerEmail: row.customer_email,
+    status: row.status,
+    createdAt: row.created_at,
+  }))
+}

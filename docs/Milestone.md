@@ -138,17 +138,34 @@ Simplification made deliberately: **possessing a valid API key = full read/write
 ---
 
 ## M4 — Funnels for Courses (one template, demo checkout)
-**Status: todo**
+**Status: done**
 **Reordered 2026-07-15 — moved ahead of the original M4 (Website Builder) per user priority: funnels next, automation after that, real Stripe/Website Builder/Email+CRM later.**
 
-- [ ] `funnels` table — org-scoped, tied to a `course_id`: name/slug, `template_key` (only one template exists — column is forward-compatible for more later), headline/copy fields, status draft/published
-- [ ] One built-in template covering all three pages (landing → checkout → thank-you) — this is *not* the drag-drop block builder (that's M6 territory); the AI/creator fills in copy fields, the template does the layout
-- [ ] Public routes for the three pages, org-scoped (mirrors the M3 student-view pattern): landing page, checkout page, thank-you page
-- [ ] Checkout is a **demo only**, explicitly no real money: no Stripe, no real charge. Submitting the form creates an `orders` row marked paid and redirects to the thank-you page. Real payment is M7, not this milestone.
-- [ ] MCP tools: `create_funnel` (course + copy, template implied since there's only one), `list_funnels`, `publish_funnel`, `unpublish_funnel`, `delete_funnel`
-- [ ] Verify: funnel created via MCP renders all 3 pages correctly; demo checkout completes end-to-end; resulting order shows up in the dashboard
+- [x] `funnels` table — org-scoped, tied to a `course_id`: name/slug, `template_key` (only one template exists — column is forward-compatible for more later), headline/copy fields, status draft/published
+- [x] One built-in template covering all three pages (landing → checkout → thank-you) — this is *not* the drag-drop block builder (that's M6 territory); the AI/creator fills in copy fields, the template does the layout
+- [x] Public routes for the three pages, org-scoped (mirrors the M3 student-view pattern): landing page (`/[org]/funnels/[funnel]`), checkout page (`.../checkout`), thank-you page (`.../thank-you`)
+- [x] Checkout is a **demo only**, explicitly no real money: no Stripe, no real charge. Submitting the form creates an `orders` row marked paid and redirects to the thank-you page. Real payment is M7, not this milestone.
+- [x] MCP tools: `create_funnel` (course + copy, template implied since there's only one), `list_funnels`, `publish_funnel`, `unpublish_funnel`, `delete_funnel`
+- [x] Verify: funnel created via MCP renders all 3 pages correctly; demo checkout completes end-to-end; resulting order shows up in the dashboard
 
-**Exit criteria:** "Create a funnel for [course]" from an MCP client produces a working 3-page funnel using the one template; a demo checkout completes without touching real payment rails.
+**Key architecture decision — same `mcp_*` RPC pattern as M3, plus one new shape for the public write path:** `funnels` writes (web dashboard) go through `is_org_content_manager(org_id)` RLS, same as courses/lessons/categories; MCP mutations go through five new `SECURITY DEFINER` RPCs (`mcp_create_funnel`, `mcp_list_funnels`, `mcp_set_funnel_status`, `mcp_delete_funnel`) keyed off `mcp_authenticated_org(p_key_hash)`, identical shape to M3. The new piece: the demo checkout itself is a **public, unauthenticated write** (no API key, no session — a real visitor filling out a form), so it doesn't fit either existing pattern (RLS-as-authenticated, or RPC-keyed-off-an-api-key). Added `public.create_demo_order(p_org_slug, p_funnel_slug, p_customer_name, p_customer_email)`, a `SECURITY DEFINER` RPC granted directly to `anon`/`authenticated`, which re-validates the funnel is actually `published` by joining on the org+funnel slugs (never a client-supplied `org_id`/`funnel_id`) before inserting. `orders` itself has no insert/update/delete RLS policy at all for either role — the RPC is the only write path, matching the "SECURITY DEFINER RPC as the sole write path" principle from M3, just anon-callable by design instead of key-gated.
+
+**Simplification made deliberately:** `orders.status` has no `check` constraint — every row this milestone creates is `'paid'` (there is no other path to create one), so a constraint would be pure ceremony; M7 (real Stripe) is the natural point to revisit if `refunded`/`failed` states get added. Also, the public funnel/thank-you pages never read the `orders` table at all (no public RPC exposes it) — the thank-you page just renders the funnel's own static `thank_you_message` copy, avoiding any need to expose customer PII (name/email) on a publicly reachable URL.
+
+**Verified live (against the real project), in order:**
+1. Migration applied (`create_funnels_and_orders_schema`, `create_funnels_mcp_rpcs`); `get_advisors({type:"security"})` shows only the same accepted warning class as M1–M3 (anon-callable `SECURITY DEFINER` functions, by design) plus the pre-existing leaked-password warning — nothing new or unexpected.
+2. MCP end-to-end over `/api/mcp` with a real signed-up org's key: `create_course` → `publish_course` → `create_funnel` (published) → `tools/list` confirms all 5 funnel tools registered and callable.
+3. All 3 public pages, real HTTP: landing page 200 with correct headline/price/CTA; checkout page 200 with the form; thank-you page 200 with the funnel's message; wrong funnel slug → 404; wrong org slug → 404 (confirms org-scoping, not just existence-checking) — same cross-check shape as M3's course pages.
+4. Demo checkout exercised as a real visitor would hit it: replayed Next.js's no-JS progressive-enhancement Server Action POST (the hidden `$ACTION_*` fields Next emits for exactly this no-JS fallback case) against the real checkout page → 303 redirect to the thank-you page, proving the actual `submitDemoCheckout` Server Action (not just the underlying RPC) works end-to-end.
+5. `create_demo_order` exercised directly as `anon` over PostgREST: valid published funnel → order row created `status: 'paid'`; unpublished/nonexistent funnel slug → clean exception, no data leaked; missing `customer_name` → clean exception.
+6. RLS cross-check as the real signed-up owner (`Authorization: Bearer <access_token>`, the same path the dashboard uses): sees the funnel and both recorded orders. As `anon`: `orders` select returns empty (not an error); direct `anon` insert into `orders` (bypassing the RPC) → `42501` rejected, confirming the RPC really is the only write path.
+7. `tsc --noEmit` / `eslint` clean throughout.
+
+**Not independently re-verified:** owner-vs-`support`-role write restriction on `funnels` — reuses `is_org_content_manager`, the exact same helper already verified live for this exact scenario in M3 against courses/lessons/categories. Setting up a second `support`-role membership for this milestone would have required a raw SQL privilege grant outside any app flow, which this session's own auto-mode safety classifier correctly declined as out-of-scope for a live grant; skipped rather than worked around, since the underlying function is unchanged.
+
+**Test data:** all test org/course/funnel/orders/api_keys cleaned from `public` schema after verification. Test `auth.users` rows left (harmless `+m4verify`/`+m4support` aliases on linno.io), same pattern as M1–M3.
+
+**Exit criteria met:** "Create a funnel for [course]" from an MCP client produces a working 3-page funnel using the one template; a demo checkout completes without touching real payment rails — verified live, end-to-end, in both directions.
 
 ---
 
