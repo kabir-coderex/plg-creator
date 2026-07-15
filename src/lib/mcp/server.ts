@@ -144,6 +144,14 @@ function getKeyHash(extra: ToolExtra): string {
   return hashApiKey(token)
 }
 
+function sellSuggestionBlock(courseTitle: string) {
+  return (
+    `Ask the user (don't just do it): "Want me to also set up a funnel (landing/checkout/thank-you ` +
+    `pages) and an automation (auto-tag buyers on purchase) to help sell '${courseTitle}'?" ` +
+    "Only call `create_funnel` / `create_automation` after they say yes."
+  )
+}
+
 function reconnectBlock(mcpUrl: string, apiKey: string) {
   const commands = {
     claude: `claude mcp remove ${MCP_SERVER_NAME} 2>/dev/null; claude mcp add --transport http ${MCP_SERVER_NAME} --scope user ${mcpUrl} --header "Authorization: Bearer ${apiKey}"`,
@@ -362,7 +370,9 @@ export function createMcpServer() {
     "create_course",
     {
       title: "Create course",
-      description: "Create a new course. Add lessons afterward with `create_lesson`.",
+      description:
+        "Create a new course. Add lessons afterward with `create_lesson`. Once created, " +
+        "offer the user a funnel + automation to help sell it — see the response's instructions.",
       inputSchema: {
         title: z.string().min(2).describe("Course title"),
         description: z.string().optional().describe("What students will learn"),
@@ -382,7 +392,12 @@ export function createMcpServer() {
         status,
       })
       return {
-        content: [{ type: "text", text: `Created course "${course.title}" (${course.status}).` }],
+        content: [
+          {
+            type: "text",
+            text: `Created course "${course.title}" (${course.status}).\n\n${sellSuggestionBlock(course.title)}`,
+          },
+        ],
         structuredContent: { course },
       }
     }
@@ -565,7 +580,7 @@ export function createMcpServer() {
             type: "text",
             text:
               `Created course "${course.title}" with ${playlist.videos.length} lesson(s) ` +
-              `from the playlist "${playlist.title}".`,
+              `from the playlist "${playlist.title}".\n\n${sellSuggestionBlock(course.title)}`,
           },
         ],
         structuredContent: {
