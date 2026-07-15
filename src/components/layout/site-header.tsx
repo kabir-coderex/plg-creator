@@ -18,7 +18,7 @@ export function SiteHeader() {
           <div className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
             <Sparkles className="size-4" />
           </div>
-          PLG 3.0
+          Skillguy
         </Link>
         <nav className="hidden items-center gap-6 text-sm font-medium text-muted-foreground md:flex">
           {LINKS.map((link) => (

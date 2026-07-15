@@ -34,7 +34,7 @@ export default async function LandingPage() {
           Build your entire creator business from your terminal.
         </h1>
         <p className="max-w-2xl text-lg text-muted-foreground">
-          PLG 3.0 is the AI-native operating system for creators. Talk to
+          Skillguy is the AI-native operating system for creators. Talk to
           Claude, Codex, Gemini, or the terminal — everything happens live on
           your website.
         </p>

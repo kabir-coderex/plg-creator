@@ -1,4 +1,5 @@
-# PLG 3.0 — Milestones
+# Skillguy — Milestones
+_(branded "Skillguy" as of 2026-07-15; internal planning docs/skill files still reference the earlier "PLG 3.0" working name — not renamed everywhere)_
 
 Tracks step-by-step build order. One milestone active at a time. Update status as work lands.
 

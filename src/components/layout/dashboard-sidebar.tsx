@@ -29,7 +29,7 @@ export function DashboardSidebar() {
             <Sparkles className="size-4" />
           </div>
           <span className="truncate font-semibold group-data-[collapsible=icon]:hidden">
-            PLG 3.0
+            Skillguy
           </span>
         </div>
       </SidebarHeader>

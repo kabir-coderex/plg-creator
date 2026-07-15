@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PLG 3.0 — AI Native Creator Platform",
+  title: "Skillguy — AI Native Creator Platform",
   description: "Build your entire creator business from your terminal.",
 };
 

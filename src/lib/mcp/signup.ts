@@ -8,7 +8,7 @@ import { createAnonClient } from "@/lib/supabase/anon"
 
 // Prototype-only: no real inbox exists at this domain. There is no confirmation email to
 // receive and no way to recover the account through it — it's a placeholder, not a mailbox.
-const PLACEHOLDER_EMAIL_DOMAIN = "creators.plg3.invalid"
+const PLACEHOLDER_EMAIL_DOMAIN = "creators.skillguy.invalid"
 
 function generatePlaceholderEmail(organizationName: string) {
   const local = slugify(organizationName).slice(0, 20) || "creator"

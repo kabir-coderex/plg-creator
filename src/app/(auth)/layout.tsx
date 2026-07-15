@@ -12,7 +12,7 @@ export default function AuthGroupLayout({
         <div className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
           <Sparkles className="size-4" />
         </div>
-        PLG 3.0
+        Skillguy
       </Link>
       <div className="w-full max-w-sm">{children}</div>
     </div>

@@ -5,6 +5,7 @@ import { Check, Copy } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { MCP_SERVER_NAME } from "@/lib/mcp/constants"
 
 function CopyBlock({ label, code }: { label: string; code: string }) {
   const [copied, setCopied] = useState(false)
@@ -38,7 +39,7 @@ export function McpConnectPanel({
   cliCommand: string
 }) {
   const configJson = JSON.stringify(
-    { mcpServers: { plg3: { url: mcpUrl } } },
+    { mcpServers: { [MCP_SERVER_NAME]: { url: mcpUrl } } },
     null,
     2
   )

@@ -106,7 +106,7 @@ function reconnectBlock(mcpUrl: string, apiKey: string) {
 }
 
 export function createMcpServer() {
-  const server = new McpServer({ name: "plg3-creator", version: "0.1.0" })
+  const server = new McpServer({ name: "skillguy", version: "0.1.0" })
 
   // Permission: NONE — this is the one tool callable with no API key at all (that's the
   // point: it creates the very first org + key for a brand new creator). Prototype-only

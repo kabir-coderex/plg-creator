@@ -1,7 +1,7 @@
 import "server-only"
 import { randomBytes, createHash } from "node:crypto"
 
-const KEY_PREFIX = "plg3_live_"
+const KEY_PREFIX = "skillguy_live_"
 const PREFIX_VISIBLE_CHARS = 6
 
 export function generateApiKey() {
