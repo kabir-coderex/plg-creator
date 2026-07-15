@@ -790,13 +790,17 @@ export function createMcpServer() {
         thank_you_message: z.string().optional(),
         status: z.enum(["draft", "published"]).optional().describe("Defaults to draft"),
       },
-      outputSchema: { funnel: z.object(funnelShape) },
+      outputSchema: {
+        funnel: z.object(funnelShape),
+        url: z.string().describe("Preview URL — live now if published, owner-only preview if draft"),
+      },
       annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (
       { course_id, name, headline, subheadline, description, cta_text, price_label, thank_you_message, status },
       extra
     ) => {
+      const ctx = requireAuth(extra)
       const keyHash = getKeyHash(extra)
       const funnel = await mcpCreateFunnel(keyHash, {
         courseId: course_id,
@@ -810,9 +814,11 @@ export function createMcpServer() {
         thankYouMessage: thank_you_message,
         status,
       })
+      const url = `${getSiteOrigin(extra)}/${ctx.orgSlug}/funnels/${funnel.slug}`
+      const preview = funnel.status === "published" ? url : `${url} (draft — only visible to you until published)`
       return {
-        content: [{ type: "text", text: `Created funnel "${funnel.name}" (${funnel.status}).` }],
-        structuredContent: { funnel },
+        content: [{ type: "text", text: `Created funnel "${funnel.name}" (${funnel.status}). Preview: ${preview}` }],
+        structuredContent: { funnel, url },
       }
     }
   )

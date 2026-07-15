@@ -41,15 +41,13 @@ export default async function FunnelDetailPage({
           <Badge variant={funnel.status === "published" ? "default" : "outline"}>
             {funnel.status}
           </Badge>
-          {funnel.status === "published" && (
-            <Link
-              href={`/${org.slug}/funnels/${funnel.slug}`}
-              target="_blank"
-              className="text-sm text-primary underline underline-offset-4"
-            >
-              View funnel ↗
-            </Link>
-          )}
+          <Link
+            href={`/${org.slug}/funnels/${funnel.slug}`}
+            target="_blank"
+            className="text-sm text-primary underline underline-offset-4"
+          >
+            {funnel.status === "published" ? "View funnel ↗" : "Preview funnel ↗"}
+          </Link>
         </div>
         {canManage && <FunnelActions funnel={funnel} />}
       </div>
