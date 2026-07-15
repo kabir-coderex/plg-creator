@@ -2,13 +2,14 @@
 
 import { Bell } from "lucide-react"
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { CommandMenu } from "@/components/layout/command-menu"
+import { OrgSwitcher } from "@/components/layout/org-switcher"
+import type { OrgMembership } from "@/lib/dal"
 
-export function DashboardTopbar() {
+export function DashboardTopbar({ orgs }: { orgs: OrgMembership[] }) {
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
       <SidebarTrigger className="-ml-1" />
@@ -19,9 +20,8 @@ export function DashboardTopbar() {
       <Button variant="ghost" size="icon" aria-label="Notifications">
         <Bell className="size-4" />
       </Button>
-      <Avatar className="size-8">
-        <AvatarFallback>PL</AvatarFallback>
-      </Avatar>
+      <Separator orientation="vertical" className="h-6" />
+      <OrgSwitcher orgs={orgs} />
     </header>
   )
 }
