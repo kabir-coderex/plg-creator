@@ -28,6 +28,13 @@ import {
   mcpListFunnels,
   mcpSetFunnelStatus,
 } from "@/lib/mcp/funnels"
+import {
+  mcpCreateAutomation,
+  mcpDeleteAutomation,
+  mcpListAutomations,
+  mcpListContacts,
+  mcpSetAutomationStatus,
+} from "@/lib/mcp/automations"
 import { fetchYoutubePlaylist } from "@/lib/youtube"
 
 const organizationShape = {
@@ -79,6 +86,27 @@ const funnelShape = {
   price_label: z.string(),
   thank_you_message: z.string(),
   status: z.string(),
+  created_at: z.string(),
+  updated_at: z.string(),
+}
+
+const automationShape = {
+  id: z.string(),
+  name: z.string(),
+  trigger_type: z.string(),
+  trigger_config: z.record(z.string(), z.unknown()),
+  action_type: z.string(),
+  action_config: z.record(z.string(), z.unknown()),
+  status: z.string(),
+  created_at: z.string(),
+  updated_at: z.string(),
+}
+
+const contactShape = {
+  id: z.string(),
+  email: z.string(),
+  name: z.string().nullable(),
+  tags: z.array(z.string()),
   created_at: z.string(),
   updated_at: z.string(),
 }
@@ -855,6 +883,154 @@ export function createMcpServer() {
       return {
         content: [{ type: "text", text: "Funnel deleted." }],
         structuredContent: { deleted: true },
+      }
+    }
+  )
+
+  // ===== automation =====
+
+  // Permission: any valid, non-revoked API key. Only one trigger_type ('funnel_purchased') and
+  // one action_type ('tag_contact') exist in M5 — funnel_id is optional (omit to match any
+  // funnel in this org). Firing this automation upserts a contact by email and appends the tag.
+  // Example prompt: "Tag anyone who buys my baking course as 'buyer'."
+  // Example response: { automation: { id, name, status: "active", ... } }
+  server.registerTool(
+    "create_automation",
+    {
+      title: "Create automation",
+      description:
+        "Create a trigger → action rule. Trigger 'funnel_purchased' fires when an order is " +
+        "placed (optionally scoped to one funnel); action 'tag_contact' upserts a contact by " +
+        "email and adds a tag.",
+      inputSchema: {
+        name: z.string().min(2).describe("Internal automation name"),
+        funnel_id: z
+          .string()
+          .optional()
+          .describe("Restrict the trigger to one funnel's purchases — see `list_funnels`. Omit to match any funnel."),
+        tag: z.string().min(1).optional().describe("Tag to add to the contact, defaults to 'customer'"),
+        status: z.enum(["draft", "active"]).optional().describe("Defaults to draft"),
+      },
+      outputSchema: { automation: z.object(automationShape) },
+      annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ name, funnel_id, tag, status }, extra) => {
+      const keyHash = getKeyHash(extra)
+      const automation = await mcpCreateAutomation(keyHash, {
+        name,
+        triggerType: "funnel_purchased",
+        actionType: "tag_contact",
+        triggerConfig: funnel_id ? { funnel_id } : {},
+        actionConfig: { tag: tag ?? "customer" },
+        status,
+      })
+      return {
+        content: [{ type: "text", text: `Created automation "${automation.name}" (${automation.status}).` }],
+        structuredContent: { automation },
+      }
+    }
+  )
+
+  // Permission: any valid, non-revoked API key.
+  // Example prompt: "List my automations." / "List my active automations."
+  server.registerTool(
+    "list_automations",
+    {
+      title: "List automations",
+      description: "List this org's automations, optionally filtered by status.",
+      inputSchema: { status: z.enum(["draft", "active"]).optional() },
+      outputSchema: { automations: z.array(z.object(automationShape)) },
+    },
+    async ({ status }, extra) => {
+      const keyHash = getKeyHash(extra)
+      const automations = await mcpListAutomations(keyHash, status)
+      return {
+        content: [{ type: "text", text: `${automations.length} automation(s).` }],
+        structuredContent: { automations },
+      }
+    }
+  )
+
+  // Permission: any valid, non-revoked API key.
+  // Example prompt: "Activate that automation."
+  server.registerTool(
+    "activate_automation",
+    {
+      title: "Activate automation",
+      description: "Turn an automation on — it will start firing on new matching triggers.",
+      inputSchema: { automation_id: z.string().describe("Automation UUID") },
+      outputSchema: { automation: z.object(automationShape) },
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ automation_id }, extra) => {
+      const keyHash = getKeyHash(extra)
+      const automation = await mcpSetAutomationStatus(keyHash, automation_id, "active")
+      return {
+        content: [{ type: "text", text: `Activated "${automation.name}".` }],
+        structuredContent: { automation },
+      }
+    }
+  )
+
+  // Permission: any valid, non-revoked API key.
+  // Example prompt: "Turn off that automation."
+  server.registerTool(
+    "deactivate_automation",
+    {
+      title: "Deactivate automation",
+      description: "Revert an automation to draft — it stops firing until reactivated.",
+      inputSchema: { automation_id: z.string().describe("Automation UUID") },
+      outputSchema: { automation: z.object(automationShape) },
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ automation_id }, extra) => {
+      const keyHash = getKeyHash(extra)
+      const automation = await mcpSetAutomationStatus(keyHash, automation_id, "draft")
+      return {
+        content: [{ type: "text", text: `Deactivated "${automation.name}".` }],
+        structuredContent: { automation },
+      }
+    }
+  )
+
+  // Permission: any valid, non-revoked API key.
+  // Example prompt: "Delete that automation."
+  server.registerTool(
+    "delete_automation",
+    {
+      title: "Delete automation",
+      description: "Permanently delete an automation. Contacts it already tagged are unaffected.",
+      inputSchema: { automation_id: z.string().describe("Automation UUID") },
+      outputSchema: { deleted: z.boolean() },
+      annotations: { destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ automation_id }, extra) => {
+      const keyHash = getKeyHash(extra)
+      await mcpDeleteAutomation(keyHash, automation_id)
+      return {
+        content: [{ type: "text", text: "Automation deleted." }],
+        structuredContent: { deleted: true },
+      }
+    }
+  )
+
+  // Permission: any valid, non-revoked API key. Contacts are created automatically by
+  // automations (M5) — there's no direct create/update tool for them yet (that's M8's scope).
+  // Example prompt: "List contacts tagged 'vip'."
+  server.registerTool(
+    "list_contacts",
+    {
+      title: "List contacts",
+      description: "List this org's contacts, optionally filtered by tag.",
+      inputSchema: { tag: z.string().optional().describe("Only return contacts with this tag") },
+      outputSchema: { contacts: z.array(z.object(contactShape)) },
+    },
+    async ({ tag }, extra) => {
+      const keyHash = getKeyHash(extra)
+      const contacts = await mcpListContacts(keyHash, tag)
+      return {
+        content: [{ type: "text", text: `${contacts.length} contact(s).` }],
+        structuredContent: { contacts },
       }
     }
   )

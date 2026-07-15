@@ -326,3 +326,145 @@ export async function getOrders(orgId: string, funnelId?: string): Promise<Order
     createdAt: row.created_at,
   }))
 }
+
+export type Contact = {
+  id: string
+  email: string
+  name: string | null
+  tags: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+export async function getContacts(orgId: string): Promise<Contact[]> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from("contacts")
+    .select("id, email, name, tags, created_at, updated_at")
+    .eq("org_id", orgId)
+    .order("created_at", { ascending: false })
+
+  if (error) {
+    throw error
+  }
+
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    tags: row.tags,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }))
+}
+
+export type Automation = {
+  id: string
+  name: string
+  triggerType: string
+  triggerConfig: { funnel_id?: string }
+  actionType: string
+  actionConfig: { tag?: string }
+  status: "draft" | "active"
+  createdAt: string
+  updatedAt: string
+}
+
+const AUTOMATION_SELECT =
+  "id, name, trigger_type, trigger_config, action_type, action_config, status, created_at, updated_at"
+
+function mapAutomation(row: {
+  id: string
+  name: string
+  trigger_type: string
+  trigger_config: { funnel_id?: string } | null
+  action_type: string
+  action_config: { tag?: string } | null
+  status: string
+  created_at: string
+  updated_at: string
+}): Automation {
+  return {
+    id: row.id,
+    name: row.name,
+    triggerType: row.trigger_type,
+    triggerConfig: row.trigger_config ?? {},
+    actionType: row.action_type,
+    actionConfig: row.action_config ?? {},
+    status: row.status as Automation["status"],
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+export async function getAutomations(orgId: string): Promise<Automation[]> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from("automations")
+    .select(AUTOMATION_SELECT)
+    .eq("org_id", orgId)
+    .order("created_at", { ascending: false })
+
+  if (error) {
+    throw error
+  }
+
+  return (data ?? []).map(mapAutomation)
+}
+
+export async function getAutomation(orgId: string, automationId: string): Promise<Automation | null> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from("automations")
+    .select(AUTOMATION_SELECT)
+    .eq("org_id", orgId)
+    .eq("id", automationId)
+    .maybeSingle()
+
+  if (error) {
+    throw error
+  }
+
+  return data ? mapAutomation(data) : null
+}
+
+export type AutomationRun = {
+  id: string
+  automationId: string
+  contactEmail: string | null
+  createdAt: string
+}
+
+export async function getAutomationRuns(orgId: string, automationId?: string): Promise<AutomationRun[]> {
+  const supabase = await createClient()
+
+  let query = supabase
+    .from("automation_runs")
+    .select("id, automation_id, created_at, contacts (email)")
+    .eq("org_id", orgId)
+    .order("created_at", { ascending: false })
+    .limit(20)
+
+  if (automationId) {
+    query = query.eq("automation_id", automationId)
+  }
+
+  const { data, error } = await query
+
+  if (error) {
+    throw error
+  }
+
+  return (data ?? []).map((row) => {
+    const contact = Array.isArray(row.contacts) ? row.contacts[0] : row.contacts
+    return {
+      id: row.id,
+      automationId: row.automation_id,
+      contactEmail: contact?.email ?? null,
+      createdAt: row.created_at,
+    }
+  })
+}
