@@ -201,6 +201,41 @@ export async function getLessons(orgId: string, courseId: string): Promise<Lesso
   }))
 }
 
+export type QuizQuestion = {
+  question: string
+  options: string[]
+  correct_answer: string
+}
+
+export type Quiz = {
+  id: string
+  title: string
+  questions: QuizQuestion[]
+  status: "draft" | "published"
+}
+
+export async function getQuizzes(orgId: string, courseId: string): Promise<Quiz[]> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from("quizzes")
+    .select("id, title, questions, status")
+    .eq("org_id", orgId)
+    .eq("course_id", courseId)
+    .order("created_at", { ascending: false })
+
+  if (error) {
+    throw error
+  }
+
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    title: row.title,
+    questions: row.questions as QuizQuestion[],
+    status: row.status as Quiz["status"],
+  }))
+}
+
 export type Funnel = {
   id: string
   courseId: string

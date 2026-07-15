@@ -1,13 +1,14 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
 
-import { getCategories, getCourse, getLessons, getUserMemberships } from "@/lib/dal"
+import { getCategories, getCourse, getLessons, getQuizzes, getUserMemberships } from "@/lib/dal"
 import { updateCourse } from "@/lib/actions/courses"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { CourseForm } from "@/components/courses/course-form"
 import { CourseActions } from "@/components/courses/course-actions"
 import { LessonsManager } from "@/components/courses/lessons-manager"
+import { QuizzesManager } from "@/components/courses/quizzes-manager"
 
 export default async function CourseDetailPage({
   params,
@@ -27,9 +28,10 @@ export default async function CourseDetailPage({
     notFound()
   }
 
-  const [categories, lessons] = await Promise.all([
+  const [categories, lessons, quizzes] = await Promise.all([
     getCategories(org.id),
     getLessons(org.id, course.id),
+    getQuizzes(org.id, course.id),
   ])
   const canManage = org.role === "owner" || org.role === "admin" || org.role === "instructor"
   const updateWithIds = updateCourse.bind(null, course.id, org.id)
@@ -83,6 +85,18 @@ export default async function CourseDetailPage({
               courseId={course.id}
               orgId={org.id}
               lessons={lessons}
+              canManage={canManage}
+            />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <QuizzesManager
+              courseId={course.id}
+              orgId={org.id}
+              courseTitle={course.title}
+              quizzes={quizzes}
               canManage={canManage}
             />
           </CardContent>

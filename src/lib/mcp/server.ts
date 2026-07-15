@@ -22,6 +22,8 @@ import {
   mcpUpdateCourse,
   mcpUpdateLesson,
 } from "@/lib/mcp/courses"
+import { mcpCreateQuiz, mcpDeleteQuiz, mcpListQuizzes } from "@/lib/mcp/quizzes"
+import { generateDummyQuizQuestions } from "@/lib/quiz-dummy"
 import {
   mcpCreateFunnel,
   mcpDeleteFunnel,
@@ -62,6 +64,22 @@ const lessonShape = {
   content: z.string().nullable(),
   video_url: z.string().nullable(),
   position: z.number(),
+  created_at: z.string(),
+  updated_at: z.string(),
+}
+
+const quizShape = {
+  id: z.string(),
+  course_id: z.string(),
+  title: z.string(),
+  questions: z.array(
+    z.object({
+      question: z.string(),
+      options: z.array(z.string()),
+      correct_answer: z.string(),
+    })
+  ),
+  status: z.string(),
   created_at: z.string(),
   updated_at: z.string(),
 }
@@ -149,6 +167,14 @@ function sellSuggestionBlock(courseTitle: string) {
     `Ask the user (don't just do it): "Want me to also set up a funnel (landing/checkout/thank-you ` +
     `pages) and an automation (auto-tag buyers on purchase) to help sell '${courseTitle}'?" ` +
     "Only call `create_funnel` / `create_automation` after they say yes."
+  )
+}
+
+function quizSuggestionBlock(courseTitle: string) {
+  return (
+    `Ask the user (don't just do it): "Want me to generate a quiz for '${courseTitle}' to test students' ` +
+    `understanding? (Placeholder questions for now — you can edit the real content later.)" ` +
+    "Only call `generate_quiz` after they say yes."
   )
 }
 
@@ -371,8 +397,10 @@ export function createMcpServer() {
     {
       title: "Create course",
       description:
-        "Create a new course. Add lessons afterward with `create_lesson`. Once created, " +
-        "offer the user a funnel + automation to help sell it — see the response's instructions.",
+        "Create a new course. Add lessons afterward with `create_lesson`. If the user explicitly asked " +
+        "for a quiz when requesting the course, call `generate_quiz` right after creating it (dummy " +
+        "placeholder questions for now). If they didn't ask, offer one instead — see the response's " +
+        "instructions. Once created, also offer a funnel + automation to help sell it.",
       inputSchema: {
         title: z.string().min(2).describe("Course title"),
         description: z.string().optional().describe("What students will learn"),
@@ -395,7 +423,9 @@ export function createMcpServer() {
         content: [
           {
             type: "text",
-            text: `Created course "${course.title}" (${course.status}).\n\n${sellSuggestionBlock(course.title)}`,
+            text:
+              `Created course "${course.title}" (${course.status}).\n\n` +
+              `${quizSuggestionBlock(course.title)}\n\n${sellSuggestionBlock(course.title)}`,
           },
         ],
         structuredContent: { course },
@@ -580,7 +610,8 @@ export function createMcpServer() {
             type: "text",
             text:
               `Created course "${course.title}" with ${playlist.videos.length} lesson(s) ` +
-              `from the playlist "${playlist.title}".\n\n${sellSuggestionBlock(course.title)}`,
+              `from the playlist "${playlist.title}".\n\n${quizSuggestionBlock(course.title)}\n\n` +
+              sellSuggestionBlock(course.title),
           },
         ],
         structuredContent: {
@@ -696,6 +727,92 @@ export function createMcpServer() {
       return {
         content: [{ type: "text", text: `${lessons.length} lesson(s).` }],
         structuredContent: { lessons },
+      }
+    }
+  )
+
+  // ===== quizzes =====
+
+  // Permission: any valid, non-revoked API key. Questions are placeholder/dummy content for now —
+  // real AI-authored questions are a future upgrade. Call this right after `create_course` when the
+  // user explicitly asked for a quiz; otherwise just offer it (see `quizSuggestionBlock`, surfaced in
+  // `create_course`'s response).
+  // Example prompt: "Add a quiz to that course." / "Create a course on X and make a quiz for it."
+  // Example response: { quiz: { id, title, questions: [...], status: "draft", ... } }
+  server.registerTool(
+    "generate_quiz",
+    {
+      title: "Generate quiz",
+      description:
+        "Generate a quiz for a course with placeholder/dummy questions — real AI-authored questions " +
+        "are a future upgrade. The creator can review and edit them afterward in the dashboard.",
+      inputSchema: {
+        course_id: z.string().describe("Course UUID — see `list_courses`"),
+        title: z.string().optional().describe('Quiz title — defaults to "<course title> Quiz"'),
+        status: z.enum(["draft", "published"]).optional().describe("Defaults to draft"),
+      },
+      outputSchema: { quiz: z.object(quizShape) },
+      annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ course_id, title, status }, extra) => {
+      const keyHash = getKeyHash(extra)
+      const quiz = await mcpCreateQuiz(keyHash, {
+        courseId: course_id,
+        title,
+        questions: generateDummyQuizQuestions(),
+        status,
+      })
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Generated quiz "${quiz.title}" with ${quiz.questions.length} placeholder question(s) (${quiz.status}).`,
+          },
+        ],
+        structuredContent: { quiz },
+      }
+    }
+  )
+
+  // Permission: any valid, non-revoked API key.
+  // Example prompt: "List the quizzes for that course." / "List all my quizzes."
+  server.registerTool(
+    "list_quizzes",
+    {
+      title: "List quizzes",
+      description: "List this org's quizzes, optionally filtered by course.",
+      inputSchema: { course_id: z.string().optional().describe("Course UUID — see `list_courses`") },
+      outputSchema: { quizzes: z.array(z.object(quizShape)) },
+    },
+    async ({ course_id }, extra) => {
+      const keyHash = getKeyHash(extra)
+      const quizzes = await mcpListQuizzes(keyHash, course_id)
+      return {
+        content: [
+          { type: "text", text: `${quizzes.length} quiz${quizzes.length === 1 ? "" : "zes"}.` },
+        ],
+        structuredContent: { quizzes },
+      }
+    }
+  )
+
+  // Permission: any valid, non-revoked API key.
+  // Example prompt: "Delete that quiz."
+  server.registerTool(
+    "delete_quiz",
+    {
+      title: "Delete quiz",
+      description: "Permanently delete a quiz.",
+      inputSchema: { quiz_id: z.string().describe("Quiz UUID") },
+      outputSchema: { deleted: z.boolean() },
+      annotations: { destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ quiz_id }, extra) => {
+      const keyHash = getKeyHash(extra)
+      await mcpDeleteQuiz(keyHash, quiz_id)
+      return {
+        content: [{ type: "text", text: "Quiz deleted." }],
+        structuredContent: { deleted: true },
       }
     }
   )

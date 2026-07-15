@@ -1,6 +1,7 @@
 import "server-only"
 
 import { createClient } from "@/lib/supabase/server"
+import type { QuizQuestion } from "@/lib/dal"
 
 export type PublicCourse = {
   id: string
@@ -84,4 +85,57 @@ export async function getPublicLessons(courseId: string): Promise<PublicLesson[]
     content: row.content,
     videoUrl: row.video_url,
   }))
+}
+
+export type PublicQuizSummary = {
+  id: string
+  title: string
+  questionCount: number
+}
+
+export type PublicQuiz = {
+  id: string
+  title: string
+  questions: QuizQuestion[]
+}
+
+// Published quizzes only — RLS backs this up (`anyone can view quizzes of published courses`),
+// the `.eq("status", "published")` here is defense-in-depth, same convention as `getPublicCourse`.
+export async function getPublicQuizzes(courseId: string): Promise<PublicQuizSummary[]> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from("quizzes")
+    .select("id, title, questions")
+    .eq("course_id", courseId)
+    .eq("status", "published")
+    .order("created_at", { ascending: false })
+
+  if (error) {
+    throw error
+  }
+
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    title: row.title,
+    questionCount: (row.questions as QuizQuestion[]).length,
+  }))
+}
+
+export async function getPublicQuiz(courseId: string, quizId: string): Promise<PublicQuiz | null> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from("quizzes")
+    .select("id, title, questions")
+    .eq("course_id", courseId)
+    .eq("id", quizId)
+    .eq("status", "published")
+    .maybeSingle()
+
+  if (error) {
+    throw error
+  }
+
+  return data ? { id: data.id, title: data.title, questions: data.questions as QuizQuestion[] } : null
 }

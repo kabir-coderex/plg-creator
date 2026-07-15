@@ -1,8 +1,15 @@
 import { notFound } from "next/navigation"
 import Link from "next/link"
-import { BookOpenIcon, CheckCircle2Icon, ClockIcon, FileTextIcon, VideoIcon } from "lucide-react"
+import {
+  BookOpenIcon,
+  CheckCircle2Icon,
+  ClockIcon,
+  FileTextIcon,
+  HelpCircleIcon,
+  VideoIcon,
+} from "lucide-react"
 
-import { getPublicCourse, getPublicLessons } from "@/lib/public-courses"
+import { getPublicCourse, getPublicLessons, getPublicQuizzes } from "@/lib/public-courses"
 import { estimateDurationMinutes, getLessonKind, getLessonKindLabel } from "@/lib/lesson-meta"
 import { Badge } from "@/components/ui/badge"
 import { LessonVideo } from "@/components/courses/lesson-video"
@@ -25,6 +32,7 @@ export default async function StudentLessonPage({
 
   const { course } = data
   const lessons = await getPublicLessons(course.id)
+  const quizzes = await getPublicQuizzes(course.id)
   const lessonIndex = lessons.findIndex((item) => item.id === lessonId)
 
   if (lessonIndex === -1) {
@@ -89,6 +97,21 @@ export default async function StudentLessonPage({
                 </Link>
               )
             })}
+            {quizzes.map((quiz) => (
+              <Link
+                key={quiz.id}
+                href={`/${org}/courses/${courseSlug}/quiz/${quiz.id}`}
+                className="flex items-center gap-2 rounded-lg border-l-2 border-transparent px-2 py-2 transition-colors hover:bg-muted"
+              >
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-violet-500/15 text-violet-500">
+                  <HelpCircleIcon className="size-3.5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{quiz.title}</p>
+                  <p className="text-xs text-muted-foreground">Quiz · {quiz.questionCount} questions</p>
+                </div>
+              </Link>
+            ))}
           </nav>
         </div>
       }

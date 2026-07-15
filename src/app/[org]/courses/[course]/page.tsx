@@ -1,9 +1,17 @@
 import { notFound } from "next/navigation"
 import Image from "next/image"
 import Link from "next/link"
-import { BookOpenIcon, ClockIcon, FileTextIcon, PlayIcon, SparklesIcon, VideoIcon } from "lucide-react"
+import {
+  BookOpenIcon,
+  ClockIcon,
+  FileTextIcon,
+  HelpCircleIcon,
+  PlayIcon,
+  SparklesIcon,
+  VideoIcon,
+} from "lucide-react"
 
-import { getPublicCourse, getPublicLessons } from "@/lib/public-courses"
+import { getPublicCourse, getPublicLessons, getPublicQuizzes } from "@/lib/public-courses"
 import { estimateDurationMinutes, getLessonKind, getLessonKindLabel } from "@/lib/lesson-meta"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -24,6 +32,7 @@ export default async function StudentCoursePage({
 
   const { course } = data
   const lessons = await getPublicLessons(course.id)
+  const quizzes = await getPublicQuizzes(course.id)
   const firstLessonHref = lessons.length > 0 ? `/${org}/courses/${courseSlug}/${lessons[0].id}` : undefined
 
   return (
@@ -105,8 +114,8 @@ export default async function StudentCoursePage({
         </TabsPanel>
 
         <TabsPanel value="content" className="flex flex-col gap-2">
-          {lessons.length === 0 && (
-            <p className="text-sm text-muted-foreground">No lessons published yet.</p>
+          {lessons.length === 0 && quizzes.length === 0 && (
+            <p className="text-sm text-muted-foreground">No content published yet.</p>
           )}
           {lessons.map((lesson, index) => {
             const kind = getLessonKind(lesson)
@@ -141,6 +150,26 @@ export default async function StudentCoursePage({
               </Link>
             )
           })}
+          {quizzes.map((quiz) => (
+            <Link
+              key={quiz.id}
+              href={`/${org}/courses/${courseSlug}/quiz/${quiz.id}`}
+              className="flex items-center justify-between gap-3 rounded-lg border p-3 transition-colors hover:bg-muted"
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-violet-500/15 text-violet-500">
+                  <HelpCircleIcon className="size-4" />
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{quiz.title}</p>
+                  <p className="text-xs text-muted-foreground">Quiz</p>
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                {quiz.questionCount} questions
+              </div>
+            </Link>
+          ))}
         </TabsPanel>
 
         <TabsPanel value="reviews">
