@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 
 const LINKS = [
   { title: "Product", href: "#product" },
+  { title: "Connect AI", href: "#connect-ai" },
   { title: "Modules", href: "#modules" },
   { title: "Pricing", href: "#pricing" },
 ]

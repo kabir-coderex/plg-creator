@@ -1,8 +1,12 @@
 import Link from "next/link"
+import { headers } from "next/headers"
 import { ArrowRight, Filter, GraduationCap, Globe, Mail, Users, Workflow } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { McpConnectPanel } from "@/components/marketing/mcp-connect-panel"
+import { resolvePublicOrigin } from "@/lib/request-origin"
+import { MCP_SERVER_NAME } from "@/lib/mcp/constants"
 
 const MODULES = [
   { title: "Website Builder", description: "Pages, blog, themes, SEO.", icon: Globe },
@@ -13,7 +17,16 @@ const MODULES = [
   { title: "Automation", description: "Triggers, actions, workflows.", icon: Workflow },
 ]
 
-export default function LandingPage() {
+async function getMcpUrl() {
+  const headerList = await headers()
+  const host = headerList.get("host") ?? "localhost:3000"
+  return `${resolvePublicOrigin(host, headerList.get("x-forwarded-proto"))}/api/mcp`
+}
+
+export default async function LandingPage() {
+  const mcpUrl = await getMcpUrl()
+  const cliCommand = `claude mcp add --transport http ${MCP_SERVER_NAME} --scope user ${mcpUrl}`
+
   return (
     <>
       <section className="mx-auto flex max-w-6xl flex-col items-center gap-6 px-6 py-24 text-center">
@@ -33,6 +46,13 @@ export default function LandingPage() {
             View dashboard
           </Button>
         </div>
+      </section>
+
+      <section id="connect-ai" className="mx-auto max-w-6xl px-6 pb-24 text-center">
+        <h2 className="mb-6 text-2xl font-semibold tracking-tight">
+          Or skip the form — connect your AI directly
+        </h2>
+        <McpConnectPanel mcpUrl={mcpUrl} cliCommand={cliCommand} />
       </section>
 
       <section id="modules" className="mx-auto max-w-6xl px-6 pb-24">

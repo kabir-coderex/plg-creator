@@ -3,16 +3,9 @@
 import { redirect } from "next/navigation"
 
 import { createClient } from "@/lib/supabase/server"
+import { uniqueSlug } from "@/lib/slug"
 
 export type OnboardState = { error?: string } | undefined
-
-function slugify(name: string) {
-  return name
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "")
-}
 
 export async function createOrganization(
   _prevState: OnboardState,
@@ -25,11 +18,10 @@ export async function createOrganization(
   }
 
   const supabase = await createClient()
-  const slug = `${slugify(name)}-${Math.random().toString(36).slice(2, 6)}`
 
   const { error } = await supabase.rpc("create_organization_with_owner", {
     org_name: name,
-    org_slug: slug,
+    org_slug: uniqueSlug(name),
   })
 
   if (error) {

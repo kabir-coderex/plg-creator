@@ -17,6 +17,7 @@ import {
   BarChart3,
   Sparkles,
   ShieldCheck,
+  KeyRound,
   type LucideIcon,
 } from "lucide-react"
 
@@ -80,7 +81,10 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: "Admin",
-    items: [{ title: "Admin", href: "/dashboard/admin", icon: ShieldCheck }],
+    items: [
+      { title: "Admin", href: "/dashboard/admin", icon: ShieldCheck },
+      { title: "API Keys", href: "/dashboard/admin/api-keys", icon: KeyRound },
+    ],
   },
 ]
 

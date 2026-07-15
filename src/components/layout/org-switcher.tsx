@@ -6,6 +6,7 @@ import { signOut } from "@/lib/actions/auth"
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -24,13 +25,15 @@ export function OrgSwitcher({ orgs }: { orgs: Org[] }) {
         <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel>Your organizations</DropdownMenuLabel>
-        {orgs.map((org) => (
-          <DropdownMenuItem key={org.id}>
-            <span className="truncate">{org.name}</span>
-            <span className="ml-auto text-xs text-muted-foreground capitalize">{org.role}</span>
-          </DropdownMenuItem>
-        ))}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Your organizations</DropdownMenuLabel>
+          {orgs.map((org) => (
+            <DropdownMenuItem key={org.id}>
+              <span className="truncate">{org.name}</span>
+              <span className="ml-auto text-xs text-muted-foreground capitalize">{org.role}</span>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <form action={signOut}>
           <button
