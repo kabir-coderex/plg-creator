@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { notFound } from "next/navigation"
 
 import { getCategories, getCourse, getLessons, getUserMemberships } from "@/lib/dal"
@@ -41,6 +42,15 @@ export default async function CourseDetailPage({
           <Badge variant={course.status === "published" ? "default" : "outline"}>
             {course.status}
           </Badge>
+          {course.status === "published" && (
+            <Link
+              href={`/${org.slug}/courses/${course.slug}`}
+              target="_blank"
+              className="text-sm text-primary underline underline-offset-4"
+            >
+              View student page ↗
+            </Link>
+          )}
         </div>
         {canManage && <CourseActions course={course} />}
       </div>

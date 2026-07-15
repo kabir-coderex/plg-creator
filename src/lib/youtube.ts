@@ -37,6 +37,19 @@ export function extractPlaylistId(input: string): string {
   )
 }
 
+// Drops timestamp/chapter-marker lines (e.g. "0:00 Intro", "(1:23:45) - Setup") that YouTube
+// descriptions commonly lead with — noise for a lesson's written content, not prose.
+const TIMESTAMP_LINE = /^\(?\d{1,2}:\d{2}(?::\d{2})?\)?\s*[-–—:]?\s*/
+
+function stripTimestampLines(description: string): string {
+  return description
+    .split("\n")
+    .filter((line) => !TIMESTAMP_LINE.test(line.trim()))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+}
+
 function requireApiKey(): string {
   const key = process.env.YOUTUBE_API_KEY
   if (!key) {
@@ -90,7 +103,7 @@ export async function fetchYoutubePlaylist(playlistUrlOrId: string): Promise<You
       videos.push({
         videoId: snippet.resourceId?.videoId,
         title: snippet.title,
-        description: snippet.description ?? "",
+        description: stripTimestampLines(snippet.description ?? ""),
         position: videos.length,
       })
     }

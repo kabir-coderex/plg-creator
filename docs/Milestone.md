@@ -127,9 +127,40 @@ Simplification made deliberately: **possessing a valid API key = full read/write
 
 **Exit criteria met:** "Create a course called X" from an MCP client creates a real row, visible live in that creator's dashboard — verified in both directions, live, with a real browser.
 
+**Follow-up — YouTube playlist import, student view (added 2026-07-15, not in the original checklist):**
+
+- New MCP tool `create_course_from_youtube_playlist` (`src/lib/youtube.ts` + `src/lib/mcp/server.ts`) — takes a playlist URL (or raw ID), creates a course (title defaults to the playlist's own title if omitted) with one lesson per video in playlist order, `video_url` pointing at the video and `content` set from the video's own description. Composes the *existing* `create_course`/`create_lesson` machinery rather than new RPCs — no new permission model needed. Requires a platform-level `YOUTUBE_API_KEY` (public playlists still need a key — that's how the Google API works regardless of the data's visibility; not per-creator OAuth). Private/deleted videos in a playlist are silently skipped.
+- New student-facing public course view at `/[org]/courses/[course]` (outside any dashboard/auth route group — no login required). Added public-read RLS policies (courses/lessons/categories/organizations, all scoped to `status = 'published'` — draft stays invisible to non-members) rather than a service-role bypass, keeping the same RLS-first pattern as everything else in this project. `src/lib/public-courses.ts` is a dedicated DAL for this — deliberately separate from the dashboard's org-scoped `dal.ts`, different security/audience model. `src/lib/video-embed.ts` + `LessonVideo` component turn a YouTube URL into an inline iframe embed (falls back to a plain link for non-YouTube URLs). Dashboard course detail page gets a "View student page ↗" link once published.
+- **Verified live, with a real `YOUTUBE_API_KEY`:** imported a real 105-video public playlist end-to-end (proved pagination past the 50-item API page size actually works, not just theorized); draft course's public page → 404; published → 200 with correct title/lessons and working `youtube.com/embed/...` URLs for real video IDs; wrong org slug → 404; wrong course slug within a real org → 404 (confirms org-scoping, not just existence-checking). Missing-`YOUTUBE_API_KEY` error path also verified as a clean tool error, not a crash, before the real key was available.
+- `tsc --noEmit` / `eslint` clean. Test org/course/lessons/key cleaned from `public` schema after verification.
+
 ---
 
-## M4 — Website Builder (Module 1)
+## M4 — Funnels for Courses (one template, demo checkout)
+**Status: todo**
+**Reordered 2026-07-15 — moved ahead of the original M4 (Website Builder) per user priority: funnels next, automation after that, real Stripe/Website Builder/Email+CRM later.**
+
+- [ ] `funnels` table — org-scoped, tied to a `course_id`: name/slug, `template_key` (only one template exists — column is forward-compatible for more later), headline/copy fields, status draft/published
+- [ ] One built-in template covering all three pages (landing → checkout → thank-you) — this is *not* the drag-drop block builder (that's M6 territory); the AI/creator fills in copy fields, the template does the layout
+- [ ] Public routes for the three pages, org-scoped (mirrors the M3 student-view pattern): landing page, checkout page, thank-you page
+- [ ] Checkout is a **demo only**, explicitly no real money: no Stripe, no real charge. Submitting the form creates an `orders` row marked paid and redirects to the thank-you page. Real payment is M7, not this milestone.
+- [ ] MCP tools: `create_funnel` (course + copy, template implied since there's only one), `list_funnels`, `publish_funnel`, `unpublish_funnel`, `delete_funnel`
+- [ ] Verify: funnel created via MCP renders all 3 pages correctly; demo checkout completes end-to-end; resulting order shows up in the dashboard
+
+**Exit criteria:** "Create a funnel for [course]" from an MCP client produces a working 3-page funnel using the one template; a demo checkout completes without touching real payment rails.
+
+---
+
+## M5 — Automation (basic)
+**Status: todo**
+**Added 2026-07-15 per user priority — next after Funnels, ahead of Website Builder/real Stripe/Email+CRM. Scope intentionally left thin here; flesh out when this milestone starts.**
+
+- [ ] Likely shape: trigger (e.g. "funnel purchased," "course completed") → action (e.g. "tag contact," "send email"). **Open dependency risk, flagging now rather than silently at build time:** the obvious first actions (send email, tag a contact) need at least a thin slice of M8 (Email + CRM) to exist first, or this milestone's actions have nowhere to act. Worth deciding at kickoff whether to pull a minimal `contacts` table forward into this milestone, or scope M5's first actions to something that doesn't need it (e.g. "publish a course," "revoke an API key").
+- [ ] Schema, tables, and MCP tools: TBD at kickoff — not designed yet
+
+---
+
+## M6 — Website Builder (Module 1)
 **Status: todo**
 
 - [ ] `pages` table (slug, blocks JSON, status draft/published) — org-scoped
@@ -140,21 +171,20 @@ Simplification made deliberately: **possessing a valid API key = full read/write
 
 ---
 
-## M5 — Funnels + Checkout + Stripe Connect (Phase 2 start)
+## M7 — Real Checkout + Stripe Connect (Phase 2)
 **Status: todo**
 
-- [ ] `funnels`, `offers`, `orders` tables — org-scoped
 - [ ] Stripe Connect onboarding flow (creator connects their own Stripe account, we store `stripe_account_id`)
-- [ ] Checkout session creation on-behalf-of the connected account (destination charges)
+- [ ] Checkout session creation on-behalf-of the connected account (destination charges) — replaces M4's demo checkout on funnels that opt in
 - [ ] Webhook handler (platform-level endpoint, routes events by connected account)
-- [ ] Order confirmation + thank-you page
-- [ ] MCP tools: `create_funnel`, `create_offer`, `refund_order`
+- [ ] `offers` table — real pricing (M4's demo funnels skip real pricing/offers entirely)
+- [ ] MCP tools: `create_offer`, `refund_order`
 
 **Exit criteria:** a real payment on a creator's funnel lands in *their* Stripe account, order row recorded in our DB.
 
 ---
 
-## M6 — Email + CRM (Phase 2 continued)
+## M8 — Email + CRM (Phase 2 continued)
 **Status: todo**
 
 - [ ] `contacts`, `tags` tables — org-scoped
@@ -168,7 +198,7 @@ Simplification made deliberately: **possessing a valid API key = full read/write
 ## Later Phases (per PRD Roadmap, not yet broken into milestones)
 
 - Community, Coaching, Events, Podcast, Certificates (PRD Phase 3)
-- Automation builder, Analytics, Affiliate, public API/SDK (PRD Phase 4)
+- Analytics, Affiliate, public API/SDK (PRD Phase 4 — Automation builder promoted to M5, 2026-07-15)
 - Full AI-native coverage across all modules, multi-client MCP (Claude/Gemini/Cursor/Codex/CLI) (PRD Phase 5)
 
 ---
@@ -180,5 +210,6 @@ Simplification made deliberately: **possessing a valid API key = full read/write
 | 1 | `SUPABASE_SERVICE_ROLE_KEY` — paste into `.env.local` (Settings → API → service_role) | M1 |
 | ~~2~~ | ~~MCP transport: hosted HTTP endpoint vs local stdio?~~ → **hosted HTTP**, decided 2026-07-15 | M2 (resolved) |
 | 3 | Auth method: email/password only, or +OAuth (Google) from the start? | M1 |
-| 4 | Stripe Connect type: Standard (creator has full own Stripe dashboard) vs Express (more embedded, less setup for them)? | M5 |
+| 4 | Stripe Connect type: Standard (creator has full own Stripe dashboard) vs Express (more embedded, less setup for them)? | M7 |
 | 5 | Git remote (GitHub org/repo) to push to? | ongoing |
+| 6 | M5 Automation's dependency on M8 Email/CRM (see M5 note above) — pull a thin `contacts` slice forward, or scope M5's first triggers/actions to avoid needing it? | M5 |
